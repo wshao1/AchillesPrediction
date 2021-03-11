@@ -144,6 +144,6 @@ if __name__ == '__main__':
     in_use_ids = get_intersection_gene_effect_expression_ids(achilles_scores, gene_expression)
     # del achilles_scores
     # del gene_expression
-    # create_train_test_df(in_use_ids, save_file=True)
-    # create_cv_folds_df(in_use_ids, save_file=True)
+    create_train_test_df(in_use_ids, save_file=True)
+    create_cv_folds_df(in_use_ids, save_file=True)
     create_gene_list_files(achilles_scores, "gene_files/")

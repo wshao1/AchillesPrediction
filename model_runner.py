@@ -25,6 +25,13 @@ def process_gene_list(gene_effect_file_name, gene_expression_file_name, gene_lis
     return res
 
 
+def print_results(gene_results, out_file):
+    with open(out_file, 'w') as f_out:
+        for gene_name, rmse, corr in gene_results:
+            to_write = "{}\t{}\t{}\n".format(gene_name, str(rmse), str(corr))
+            f_out.write(to_write)
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--gene_effect',
@@ -37,7 +44,7 @@ def parse_args():
                                           "a file.",
                         default="cross_validation_folds_ids.tsv")
     parser.add_argument('--gene_list', help="File path of a list of gene names. Should contain one gene name per line.",
-                        default="gene_file_200.txt")
+                        default="gene_files/gene_file_200.txt")
     parser.add_argument('--num_threads', help="Number of threads",
                         default=1)
     parser.add_argument('--results_directory',
@@ -47,9 +54,12 @@ def parse_args():
 
 if __name__ == '__main__':
     args = parse_args()
+    gene_list_name = args.gene_list.split("/")[-1].split(".")[0]
     gene_list = parse_gene_list_file(args.gene_list)
-    check_dir_exists_or_make(args.results_directory)
     res = process_gene_list(args.gene_effect, args.gene_expression, gene_list, args.model_name, args.cv_file,
                             args.num_threads)
+    out_file = args.results_directory + gene_list_name + ".res.txt"
+    check_dir_exists_or_make(args.results_directory)
+    print_results(res, out_file)
 
     x = 0
