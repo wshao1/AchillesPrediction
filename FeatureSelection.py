@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.stats import pearsonr
 from scipy.stats import spearmanr
+from scipy.stats import chisquare
 
 
 def get_counts_bin(A, B, num_bins=6):
@@ -34,11 +35,12 @@ def chi_squared_statistic(A, B):
         for j in range(2):
             expected_array[i, j] = b_probs[j] * sum(counts_array[i, :])
 
-    chi_squared = 0
-    for i in range(num_bins_A):
-        for j in range(2):
-            chi_squared += ((counts_array[i, j] - expected_array[i, j]) ** 2) / expected_array[i, j]
-    return chi_squared
+    # chi_squared = 0
+    # for i in range(num_bins_A):
+    #     for j in range(2):
+    #         chi_squared += ((counts_array[i, j] - expected_array[i, j]) ** 2) / expected_array[i, j]
+    chi_squared, p_val = chisquare(counts_array, f_exp=expected_array)
+    return chi_squared, p_val
 
 
 def get_top_k_columns_by_chi_squared(target, df, k):
@@ -50,7 +52,10 @@ def get_top_k_columns_by_chi_squared(target, df, k):
             if idx > 0:
                 mean_of_cur_gene = df[df.columns[idx]].mean()
                 B = df[df.columns[idx]] > mean_of_cur_gene
-                chi_squared = chi_squared_statistic(target, B)
+                try:
+                    chi_squared, p_val = chi_squared_statistic(target, B)
+                except:
+                    chi_squared, p_val = 0, 1
                 chi_squared_list.append((chi_squared, idx))
         # joblib.dump(chi_squared_list, file_name, 3)
 
@@ -65,7 +70,11 @@ def get_top_k_columns_by_spearman_correlation(target, df, k):
         correlation_list = []
         for idx, col_name in enumerate(df.columns):
             if idx > 0: #TODO change this to use column name
-                corr, p_val = spearmanr(target, df[df.columns[idx]])
+                try:
+                    # TODO handle nans better
+                    corr, p_val = spearmanr(target, df[df.columns[idx]])
+                except:
+                    corr, p_val = 0, 1
                 correlation_list.append((abs(corr), idx))
         # joblib.dump(correlation_list, file_name, 3)
 
@@ -80,7 +89,11 @@ def get_top_k_columns_by_correlation(target, df, k):
         correlation_list = []
         for idx, col_name in enumerate(df.columns):
             if idx > 0:
-                corr, p_val = pearsonr(target, df[df.columns[idx]])
+                try:
+                    #TODO handle nans better
+                    corr, p_val = pearsonr(target, df[df.columns[idx]])
+                except:
+                    corr, p_val = 0, 1
                 correlation_list.append((abs(corr), idx))
         # joblib.dump(correlation_list, file_name, 3)
 
@@ -89,7 +102,7 @@ def get_top_k_columns_by_correlation(target, df, k):
 
 
 def get_features(target, exrpession_data, num_features):
-    res_chi = []#get_top_k_columns_by_chi_squared(target, exrpession_data, num_features)
+    res_chi = get_top_k_columns_by_chi_squared(target, exrpession_data, num_features)
     res_spear_corr = get_top_k_columns_by_spearman_correlation(target, exrpession_data, num_features)
     res_pear_corr = get_top_k_columns_by_correlation(target, exrpession_data, num_features)
     in_use_features = sorted(list(set(res_chi + res_spear_corr + res_pear_corr)))

@@ -11,6 +11,7 @@ from tensorflow.keras.layers.experimental import preprocessing
 from tensorflow.python.keras.applications.densenet import layers
 from data_helper import get_intersecting_gene_ids_and_data
 import argparse
+import datetime
 import sys
 import warnings
 
@@ -35,7 +36,7 @@ class XgBoost:
         for m in max_depth_l:
             for n_estimator in n_estimators_l:
                 for lr in learning_rate_l:
-                    model = XGBRegressor(max_depth=m, seed=0, n_estimators=n_estimator, learning_rate=lr)
+                    model = XGBRegressor(max_depth=m, seed=0, n_estimators=n_estimator, learning_rate=lr, n_jobs=1)
                     model = model.fit(x_train, y_train, eval_set=eval_set, early_stopping_rounds=40, verbose=False)
                     val_pred = model.predict(x_validation).flatten()
                     rmse = get_rmse(val_pred, y_validation)
@@ -45,7 +46,7 @@ class XgBoost:
                         min_n_est = n_estimator
                         min_rmse = rmse
 
-        model = XGBRegressor(max_depth=min_m, seed=0, n_estimators=min_n_est, learning_rate=min_lr)
+        model = XGBRegressor(max_depth=min_m, seed=0, n_estimators=min_n_est, learning_rate=min_lr, n_jobs=1)
         model = model.fit(x_train, y_train, eval_set=eval_set, early_stopping_rounds=40, verbose=False)
         self.model = model
 
@@ -264,6 +265,7 @@ def cross_validation(achilles_effect, expression_dat, target_gene_name, cross_va
     rmse_sum = 0
     fold_count = 0
     pearson_corr_pred_sum = 0
+    model_failed = False
     for fold_col in cross_validation_df.columns[1:]:
         fold_count += 1
         cur_ids = list(cross_validation_df[fold_col])
@@ -287,16 +289,31 @@ def cross_validation(achilles_effect, expression_dat, target_gene_name, cross_va
         x_test = test_expression[in_use_gene_names]
         x_test = np.array(x_test)
         test_y = np.array(test_y)
-        model = train_model(x_train, train_y, model_name)
-        test_pred = model.predict(x_test)
-        rmse = get_rmse(test_pred, test_y)
-        pred_corr, _ = pearsonr(test_pred, test_y)
-        rmse_sum += rmse
-        pearson_corr_pred_sum += pred_corr
-    return rmse_sum / fold_count, pearson_corr_pred_sum / fold_count
+        try:
+            model = train_model(x_train, train_y, model_name)
+            test_pred = model.predict(x_test)
+            rmse = get_rmse(test_pred, test_y)
+            pred_corr, _ = pearsonr(test_pred, test_y)
+            rmse_sum += rmse
+            pearson_corr_pred_sum += pred_corr
+            print("{}: {} with pearson corr {}".format(str(datetime.datetime.now()), fold_col, pred_corr))
+        except Exception as inst:
+            print("Exception on {} with fold {}".format(target_gene_name, fold_col))
+            print(str(inst))
+            model_failed = True
+    if not model_failed:
+        return rmse_sum / fold_count, pearson_corr_pred_sum / fold_count
+    else:
+        return -1, -1
 
 
-def run_on_target(gene_effect_file_name, gene_expression_file_name, target_gene_name, model_name, cv_df_file_name=None):
+def run_on_target(gene_effect_file_name, gene_expression_file_name, target_gene_name, model_name, log_output,
+                  cv_df_file_name=None):
+    to_print = "{}: Beginning processing gene {}".format(str(datetime.datetime.now()), target_gene_name)
+    if log_output is not None:
+        print(to_print, file=open(log_output, 'w'))
+    else:
+        print(to_print)
     if not sys.warnoptions:
         warnings.simplefilter("ignore")
     achilles_scores, gene_expression, \
@@ -324,12 +341,14 @@ def parse_args():
     parser.add_argument('--cv_file', help="Cross validation ids file path. See data_helper.py for how to create such "
                                           "a file.",
                         default="cross_validation_folds_ids.tsv")
+    parser.add_argument('--log_output', help="A filename. default output is to std.out",
+                        default=None)
     return parser.parse_args()
 
 
 if __name__ == '__main__':
     args = parse_args()
     _, cv_rmse, cv_pearson = run_on_target(args.gene_effect, args.gene_expression, args.target_gene_name,
-                                           args.model_name, args.cv_file)
+                                           args.model_name, args.log_output, args.cv_file)
     print("rmse " + str(cv_rmse))
     print("cv_pearson " + str(cv_pearson))
