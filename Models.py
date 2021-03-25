@@ -1,6 +1,8 @@
 from sklearn.linear_model import LassoCV
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF, WhiteKernel
 from xgboost import XGBRegressor
 from sklearn.utils import resample
 import numpy as np
@@ -70,6 +72,27 @@ class LinearModel:
         return self.model.predict(X).flatten()
 
 
+class GaussianProcessRegressionModel:
+    model = None
+    sclr = None
+
+    def train(self, X, y):
+        self.sclr = StandardScaler()
+        kernel = RBF() + WhiteKernel()
+        self.sclr = self.sclr.fit(X)
+        X = self.sclr.transform(X)
+        model = GaussianProcessRegressor(kernel=kernel, random_state=0)
+        self.model = model.fit(X, y)
+
+    def predict(self, X):
+        X = self.sclr.transform(X)
+        return self.model.predict(X).flatten()
+
+    def predict_with_std(self, X):
+        X = self.sclr.transform(X)
+        return self.model.predict(X, return_std=True)
+
+
 class DeepLearning:
     model = None
 
@@ -132,11 +155,11 @@ class Ensemble:
             # evaluate model
             if is_xg_boost:
                 cur_model = XgBoost()
-                cur_model.train(trainX, testy)
+                cur_model.train(trainX, trainy)
                 is_xg_boost = False
             else:
                 cur_model = DeepLearning()
-                cur_model.train(trainX, testy)
+                cur_model.train(trainX, trainy)
             # print('>%.3f' % test_acc)
             # scores.append(test_acc)
             self.members.append(cur_model)
@@ -190,6 +213,12 @@ def train_xgboost(X, y):
     return m
 
 
+def train_gp(X, y):
+    m = GaussianProcessRegressionModel()
+    m.train(X, y)
+    return m
+
+
 def train_ensemble(X, y):
     m = Ensemble()
     m.train(X, y)
@@ -207,11 +236,14 @@ model_train_method = {
     'xg_boost': train_xgboost,
     'deep': train_deep_learning,
     'ensemble': train_ensemble,
+    'GP': train_gp,
     'choose_best': train_best_using_validation
 }
 model_train_method_for_choose_best = {
     'linear': train_linear,
-    'xg_boost': train_xgboost
+    'xg_boost': train_xgboost,
+    'ensemble': train_ensemble,
+    'GP': train_gp,
 }
 
 
@@ -228,13 +260,13 @@ def train_model(X, y, model_name):
 
        model_name : string
            The name of the type of model desired to train.
-           Options are 'linear', 'xg_boost', 'deep', 'ensemble', 'choose_best'
+           Options are 'linear', 'xg_boost', 'deep', 'ensemble', 'choose_best', 'GP'
        """
     return model_train_method[model_name](X, y)
 
 
-def cross_validation(achilles_effect, expression_dat, target_gene_name, cross_validation_df, model_name,
-                     achilles_id_name='DepMap_ID', expression_id_name='Unnamed: 0'):
+def cross_validation_eval(achilles_effect, expression_dat, target_gene_name, cross_validation_df, model_name,
+                          achilles_id_name='DepMap_ID', expression_id_name='Unnamed: 0'):
     """Trains a ML model to predict y based on X input using cross validation
         and prints the final cross validated pearson correlations and RMSE.
 
@@ -255,7 +287,13 @@ def cross_validation(achilles_effect, expression_dat, target_gene_name, cross_va
 
            model_name : string
                The name of the type of model desired to train.
-               Options are 'linear', 'xg_boost', 'deep', 'ensemble', 'choose_best'
+               Options are 'linear', 'xg_boost', 'deep', 'ensemble', 'choose_best', 'GP'
+
+           achilles_id_name : string
+               The column name of cell line id column in the achilles data set
+
+           expression_id_name : string
+               The column name of cell line id column in the expression data set
            """
     test_start_idx = 0
     for state in list(cross_validation_df.state):
@@ -307,8 +345,88 @@ def cross_validation(achilles_effect, expression_dat, target_gene_name, cross_va
         return -1, -1
 
 
+def train_test_eval(achilles_effect, expression_dat, target_gene_name, train_test_df, model_name,
+                     achilles_id_name='DepMap_ID', expression_id_name='Unnamed: 0'):
+    """Trains a ML model to predict y based on X input using a train/test split
+        and prints the final cross validated pearson correlations and RMSE.
+
+           Parameters
+           ----------
+           achilles_effect : pd.DataFrame
+               contains at least two columns, cell id column and target gene achilles scores
+
+           expression_dat : pd.DataFrame
+               expression data of all genes to be used for input to ML
+
+           target_gene_name: String
+                name of target gene column in achilles_effect dataframe
+
+           train_test_df : pd.DataFrame
+                columns represent cell ids except for the first column which represents which rows
+                are train and which rows are test
+
+           model_name : string
+               The name of the type of model desired to train.
+               Options are 'linear', 'xg_boost', 'deep', 'ensemble', 'choose_best', 'GP'
+
+           achilles_id_name : string
+               The column name of cell line id column in the achilles data set
+
+           expression_id_name : string
+               The column name of cell line id column in the expression data set
+           """
+    test_start_idx = 0
+    for state in list(train_test_df.train_test_split):
+        if state == "test":
+            break
+        test_start_idx += 1
+    rmse_sum = 0
+    fold_count = 0
+    pearson_corr_pred_sum = 0
+    model_failed = False
+    fold_count += 1
+    cur_ids = list(train_test_df.id)
+    train_ids = set(cur_ids[0:test_start_idx])
+    test_ids = set(cur_ids[test_start_idx:])
+    train_achilles = achilles_effect.loc[achilles_effect[achilles_id_name].isin(train_ids)]
+    test_achilles = achilles_effect.loc[achilles_effect[achilles_id_name].isin(test_ids)]
+    train_achilles = train_achilles.sort_values(by=['DepMap_ID'])
+    test_achilles = test_achilles.sort_values(by=['DepMap_ID'])
+    train_y = train_achilles[target_gene_name]
+    test_y = test_achilles[target_gene_name]
+    train_expression = expression_dat.loc[expression_dat[expression_id_name].isin(train_ids)]
+    test_expression = expression_dat.loc[expression_dat[expression_id_name].isin(test_ids)]
+    train_expression = train_expression.sort_values(by=['Unnamed: 0'])
+    test_expression = test_expression.sort_values(by=['Unnamed: 0'])
+    expression_feature_indices = get_features(train_y, train_expression, 20)
+    in_use_gene_names = train_expression.columns[expression_feature_indices]
+    x_train = train_expression[in_use_gene_names]
+    x_train = np.array(x_train)
+    train_y = np.array(train_y)
+    x_test = test_expression[in_use_gene_names]
+    x_test = np.array(x_test)
+    test_y = np.array(test_y)
+    try:
+        model = train_model(x_train, train_y, model_name)
+        test_pred = model.predict(x_test)
+        rmse = get_rmse(test_pred, test_y)
+        pred_corr, pred_p_val = pearsonr(test_pred, test_y)
+        rmse_sum += rmse
+        pearson_corr_pred_sum += pred_corr
+        print("{}: {} with test pearson corr {}".format(str(datetime.datetime.now()), "train/test split", pred_corr))
+    except Exception as inst:
+        print("Exception on {} with {}".format(target_gene_name, "train/test split"))
+        print(str(inst))
+        model_failed = True
+    if not model_failed:
+        return rmse_sum / fold_count, pearson_corr_pred_sum / fold_count, pred_p_val
+    else:
+        return -1, -1, -1
+
+
 def run_on_target(gene_effect_file_name, gene_expression_file_name, target_gene_name, model_name, log_output,
-                  cv_df_file_name=None):
+                  num_folds=5,
+                  cv_df_file_name=None, train_test_df_file_name=None):
     to_print = "{}: Beginning processing gene {}".format(str(datetime.datetime.now()), target_gene_name)
     if log_output is not None:
         print(to_print, file=open(log_output, 'w'))
@@ -319,13 +437,20 @@ def run_on_target(gene_effect_file_name, gene_expression_file_name, target_gene_
     achilles_scores, gene_expression, \
     train_test_df, cv_df = get_intersecting_gene_ids_and_data(gene_effect_file_name,
                                                               gene_expression_file_name,
-                                                              cv_df_file=cv_df_file_name)
+                                                              cv_df_file=cv_df_file_name,
+                                                              train_test_df_file=train_test_df_file_name,
+                                                              num_folds=num_folds)
     achilles_id_col_name = 'DepMap_ID'
     expression_id_col_name = 'Unnamed: 0'
     achilles_scores = achilles_scores[[achilles_id_col_name, target_gene_name]]
-    cv_rmse, cv_pearson = cross_validation(achilles_scores, gene_expression, target_gene_name, cv_df,
-                                           model_name)
-    return target_gene_name, cv_rmse, cv_pearson
+    if num_folds > 1:
+        cv_rmse, cv_pearson = cross_validation_eval(achilles_scores, gene_expression, target_gene_name, cv_df,
+                                                    model_name)
+        pearson_p_val = None
+    else:
+        cv_rmse, cv_pearson, pearson_p_val = train_test_eval(achilles_scores, gene_expression, target_gene_name, train_test_df,
+                                                    model_name)
+    return target_gene_name, cv_rmse, cv_pearson, pearson_p_val
 
 
 def parse_args():
@@ -335,12 +460,16 @@ def parse_args():
     parser.add_argument('--gene_expression',
                         default='CCLE_expression.csv')
     parser.add_argument('--target_gene_name',
-                        default='RPP25L')
-    parser.add_argument('--model_name', help="Options are 'linear', 'xg_boost', 'deep', 'ensemble', 'choose_best'",
-                        default='choose_best')
+                        default='BRAF')
+    parser.add_argument('--model_name', help="Options are 'linear', 'xg_boost', 'deep', 'ensemble', 'choose_best', "
+                                             "'GP'",
+                        default='GP')
     parser.add_argument('--cv_file', help="Cross validation ids file path. See data_helper.py for how to create such "
                                           "a file.",
                         default="cross_validation_folds_ids.tsv")
+    parser.add_argument('--train_test_file', help="train/test ids file path. See data_helper.py for how to create"
+                                                  " such a file.",
+                        default="train_test_split.tsv")
     parser.add_argument('--log_output', help="A filename. default output is to std.out",
                         default=None)
     return parser.parse_args()
@@ -349,6 +478,6 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
     _, cv_rmse, cv_pearson = run_on_target(args.gene_effect, args.gene_expression, args.target_gene_name,
-                                           args.model_name, args.log_output, args.cv_file)
+                                           args.model_name, args.log_output, 1, args.cv_file, args.train_test_file)
     print("rmse " + str(cv_rmse))
     print("cv_pearson " + str(cv_pearson))

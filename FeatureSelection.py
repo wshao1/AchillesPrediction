@@ -35,11 +35,11 @@ def chi_squared_statistic(A, B):
         for j in range(2):
             expected_array[i, j] = b_probs[j] * sum(counts_array[i, :])
 
-    # chi_squared = 0
+    # chi_squared2 = 0
     # for i in range(num_bins_A):
     #     for j in range(2):
-    #         chi_squared += ((counts_array[i, j] - expected_array[i, j]) ** 2) / expected_array[i, j]
-    chi_squared, p_val = chisquare(counts_array, f_exp=expected_array)
+    #         chi_squared2 += ((counts_array[i, j] - expected_array[i, j]) ** 2) / expected_array[i, j]
+    chi_squared, p_val = chisquare(counts_array.flatten(), f_exp=expected_array.flatten())
     return chi_squared, p_val
 
 
@@ -69,7 +69,7 @@ def get_top_k_columns_by_spearman_correlation(target, df, k):
     else:
         correlation_list = []
         for idx, col_name in enumerate(df.columns):
-            if idx > 0: #TODO change this to use column name
+            if idx > 0:  # TODO change this to use column name
                 try:
                     # TODO handle nans better
                     corr, p_val = spearmanr(target, df[df.columns[idx]])
@@ -90,7 +90,7 @@ def get_top_k_columns_by_correlation(target, df, k):
         for idx, col_name in enumerate(df.columns):
             if idx > 0:
                 try:
-                    #TODO handle nans better
+                    # TODO handle nans better
                     corr, p_val = pearsonr(target, df[df.columns[idx]])
                 except:
                     corr, p_val = 0, 1

@@ -15,9 +15,11 @@ def parse_gene_list_file(gene_list_file_name):
 
 
 def process_gene_list(gene_effect_file_name, gene_expression_file_name, gene_list, model_name, cv_df_file_name=None,
+                      num_folds=1,
+                      train_test_file_name=None,
                       num_threads=16, log_output=None):
     params_list = [(gene_effect_file_name, gene_expression_file_name, gene_name,
-                    model_name, log_output, cv_df_file_name) for gene_name in gene_list]
+                    model_name, log_output, num_folds, cv_df_file_name, train_test_file_name) for gene_name in gene_list]
     with Pool(num_threads) as p:
         res = p.starmap(run_on_target, params_list)
         p.close()
@@ -27,8 +29,11 @@ def process_gene_list(gene_effect_file_name, gene_expression_file_name, gene_lis
 
 def print_results(gene_results, out_file):
     with open(out_file, 'w') as f_out:
-        for gene_name, rmse, corr in gene_results:
-            to_write = "{}\t{}\t{}\n".format(gene_name, str(rmse), str(corr))
+        for gene_name, rmse, corr, p_val in gene_results:
+            if p_val is not None:
+                to_write = "{}\t{}\t{}\t{}\n".format(gene_name, str(rmse), str(corr), str(p_val))
+            else:
+                to_write = "{}\t{}\t{}\n".format(gene_name, str(rmse), str(corr))
             f_out.write(to_write)
 
 
@@ -43,8 +48,13 @@ def parse_args():
     parser.add_argument('--cv_file', help="Cross validation ids file path. See data_helper.py for how to create such "
                                           "a file.",
                         default="cross_validation_folds_ids.tsv")
+    parser.add_argument('--num_folds', help="Cross validation folds. Default is train/test, i.e. 1",
+                        default=1)
+    parser.add_argument('--train_test_file', help="train/test ids file path. See data_helper.py for how to create"
+                                                  " such a file.",
+                        default="train_test_split.tsv")
     parser.add_argument('--gene_list', help="File path of a list of gene names. Should contain one gene name per line.",
-                        default="gene_files/gene_file_0.txt")
+                        default="gene_files/gene_file_200.txt")
     parser.add_argument('--num_threads', help="Number of threads",
                         default=16)
     parser.add_argument('--results_directory',
@@ -59,6 +69,8 @@ if __name__ == '__main__':
     gene_list_name = args.gene_list.split("/")[-1].split(".")[0]
     gene_list = parse_gene_list_file(args.gene_list)
     res = process_gene_list(args.gene_effect_file, args.gene_expression_file, gene_list, args.model_name, args.cv_file,
+                            args.num_folds,
+                            args.train_test_file,
                             args.num_threads, args.log_output)
     out_file = args.results_directory + gene_list_name + ".res.txt"
     check_dir_exists_or_make(args.results_directory)

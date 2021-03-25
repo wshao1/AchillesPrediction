@@ -111,7 +111,8 @@ def check_dir_exists_or_make(name):
 
 
 def get_intersecting_gene_ids_and_data(gene_effect_file, gene_expression_file, achilles_id_col_name='DepMap_ID',
-                                       expression_id_col_name='Unnamed: 0', cv_df_file=None, should_clean_gene_names=True):
+                                       expression_id_col_name='Unnamed: 0', cv_df_file=None, train_test_df_file=None,
+                                       should_clean_gene_names=True, num_folds=5):
     achilles_scores = pd.read_csv(gene_effect_file)
     gene_expression = pd.read_csv(gene_expression_file)
     in_use_ids = get_intersection_gene_effect_expression_ids(achilles_scores, gene_expression)
@@ -120,11 +121,16 @@ def get_intersecting_gene_ids_and_data(gene_effect_file, gene_expression_file, a
     if should_clean_gene_names:
         achilles_scores = clean_gene_names(achilles_scores, achilles_id_col_name)
         gene_expression = clean_gene_names(gene_expression, expression_id_col_name)
-    train_test_df = create_train_test_df(in_use_ids)
+    # gene_expression.to_csv("gene_expression_cell_lines_fixed.tsv", index=False, sep="\t")
+    # achilles_scores.to_csv("achilles_effect_cell_lines_fixed.tsv", index=False, sep="\t")
+    if train_test_df_file:
+        train_test_df = pd.read_csv(train_test_df_file, sep="\t")
+    else:
+        train_test_df = create_train_test_df(in_use_ids)
     if cv_df_file:
         cv_df = pd.read_csv(cv_df_file, sep="\t")
     else:
-        cv_df = create_cv_folds_df(in_use_ids)
+        cv_df = create_cv_folds_df(in_use_ids, num_folds)
     return achilles_scores, gene_expression, train_test_df, cv_df
 
 
