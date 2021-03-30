@@ -25,6 +25,9 @@ def get_rmse(pred, true):
 class XgBoost:
     model = None
 
+    def __init__(self):
+        self.model = None
+
     def train(self, X, y):
         x_train, x_validation, y_train, y_validation = train_test_split(X, y, test_size=0.1, random_state=0)
         max_depth_l = [5]
@@ -59,6 +62,10 @@ class XgBoost:
 class LinearModel:
     model = None
     sclr = None
+
+    def __init__(self):
+        self.model = None
+        self.sclr = None
 
     def train(self, X, y):
         self.sclr = StandardScaler()
@@ -95,6 +102,9 @@ class GaussianProcessRegressionModel:
 
 class DeepLearning:
     model = None
+
+    def __init__(self):
+        self.model = None
 
     def build_and_compile_model(self, norm, l2_reg=0.0001):
         regularizer = tf.keras.regularizers.L2(
@@ -136,6 +146,9 @@ class DeepLearning:
 class Ensemble:
     members = []
 
+    def __init__(self):
+        self.members = []
+
     def train(self, X, y):
         n_splits = 4
         num_rows = X.shape[0]
@@ -160,6 +173,7 @@ class Ensemble:
             else:
                 cur_model = DeepLearning()
                 cur_model.train(trainX, trainy)
+                is_xg_boost = True
             # print('>%.3f' % test_acc)
             # scores.append(test_acc)
             self.members.append(cur_model)
@@ -176,6 +190,9 @@ class Ensemble:
 
 class ChooseBest:
     model = None
+
+    def __init__(self):
+        self.model = None
 
     def train(self, X, y):
         x_train, x_validation, y_train, y_validation = train_test_split(X, y, test_size=0.1, random_state=0)
