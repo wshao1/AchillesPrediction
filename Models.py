@@ -1,4 +1,5 @@
 from sklearn.linear_model import LassoCV
+from sklearn.neighbors import KNeighborsRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.gaussian_process import GaussianProcessRegressor
@@ -12,6 +13,7 @@ import tensorflow as tf
 from tensorflow.keras.layers.experimental import preprocessing
 from tensorflow.python.keras.applications.densenet import layers
 from data_helper import get_intersecting_gene_ids_and_data
+from abc import ABC, abstractmethod
 import argparse
 import datetime
 import sys
@@ -20,6 +22,51 @@ import warnings
 
 def get_rmse(pred, true):
     return (sum((pred - true) ** 2) / len(true)) ** 0.5
+
+
+class KNNFeatureModel(ABC):
+    use_knn = None
+    knn_model = None
+    sclr_knn = None
+
+    def __init__(self):
+        super().__init__()
+
+    @abstractmethod
+    def train_inner(self, X, y):
+        pass
+
+    @abstractmethod
+    def predict_inner(self, X, use_std):
+        pass
+
+    def predict(self, X):
+        if self.use_knn:
+            X = self.enrich_with_knn(X)
+        return self.predict_inner(X)
+
+    def predict_with_std(self, X):
+        if self.use_knn:
+            X = self.enrich_with_knn(X)
+        return self.predict_inner(X, use_std=True)
+
+    def train(self, X, y, use_knn):
+        self.use_knn = use_knn
+        if use_knn:
+            X = self.add_knn_model(X, y)
+        return self.train_inner(X, y)
+
+    def enrich_with_knn(self, X):
+        knn_out = self.knn_model.predict(X)
+        # A = self.knn_model.model.kneighbors_graph(X)
+        X = np.hstack((X, np.array([knn_out]).T))
+        return X
+
+    def add_knn_model(self, x_train, train_y):
+        knn_model = train_model(x_train, train_y, 'knn', False)
+        self.knn_model = knn_model
+        x_train = self.enrich_with_knn(x_train)
+        return x_train
 
 
 class XgBoost:
@@ -79,25 +126,36 @@ class LinearModel:
         return self.model.predict(X).flatten()
 
 
-class GaussianProcessRegressionModel:
+class GaussianProcessRegressionModel(KNNFeatureModel):
     model = None
     sclr = None
 
-    def train(self, X, y):
+    def train_inner(self, X, y):
         self.sclr = StandardScaler()
-        kernel = RBF() + WhiteKernel()
+        kernel = RBF()  # + WhiteKernel()
         self.sclr = self.sclr.fit(X)
         X = self.sclr.transform(X)
         model = GaussianProcessRegressor(kernel=kernel, random_state=0)
         self.model = model.fit(X, y)
 
-    def predict(self, X):
-        X = self.sclr.transform(X)
-        return self.model.predict(X).flatten()
+    # def train(self, X, y, use_knn=False):
+    #     if use_knn:
+    #         X = self.add_knn_model(X, y)
+    #     self.sclr = StandardScaler()
+    #     kernel = RBF()# + WhiteKernel()
+    #     self.sclr = self.sclr.fit(X)
+    #     X = self.sclr.transform(X)
+    #     model = GaussianProcessRegressor(kernel=kernel, random_state=0)
+    #     self.model = model.fit(X, y)
 
-    def predict_with_std(self, X):
+    def predict_inner(self, X, use_std=False):
         X = self.sclr.transform(X)
-        return self.model.predict(X, return_std=True)
+        return self.model.predict(X, return_std=use_std)
+
+    # def enrich_with_knn(self, X):
+    #     knn_out = self.knn_model.predict(X)
+    #     X = np.hstack((X, np.array([knn_out]).T))
+    #     return X
 
 
 class DeepLearning:
@@ -138,6 +196,17 @@ class DeepLearning:
             validation_split=0.1, validation_data=validation_data,
             verbose=0, epochs=1500, callbacks=[callback])
         self.model = dnn_model
+
+    def predict(self, X):
+        return self.model.predict(X).flatten()
+
+
+class KNNModel:
+    model = None
+
+    def train(self, X, y, k=3):
+        model = KNeighborsRegressor(n_neighbors=k, weights='distance')
+        self.model = model.fit(X, y)
 
     def predict(self, X):
         return self.model.predict(X).flatten()
@@ -212,37 +281,43 @@ class ChooseBest:
         return self.model.predict(X)
 
 
-def train_linear(X, y):
+def train_linear(X, y, use_knn=False):
     m = LinearModel()
     m.train(X, y)
     return m
 
 
-def train_deep_learning(X, y):
+def train_deep_learning(X, y, use_knn=False):
     m = DeepLearning()
     m.train(X, y)
     return m
 
 
-def train_xgboost(X, y):
+def train_xgboost(X, y, use_knn=False):
     m = XgBoost()
     m.train(X, y)
     return m
 
 
-def train_gp(X, y):
+def train_gp(X, y, use_knn=True):
     m = GaussianProcessRegressionModel()
+    m.train(X, y, use_knn)
+    return m
+
+
+def train_knn(X, y, use_knn=False):
+    m = KNNModel()
     m.train(X, y)
     return m
 
 
-def train_ensemble(X, y):
+def train_ensemble(X, y, use_knn=False):
     m = Ensemble()
     m.train(X, y)
     return m
 
 
-def train_best_using_validation(X, y):
+def train_best_using_validation(X, y, use_knn=False):
     m = ChooseBest()
     m.train(X, y)
     return m
@@ -254,7 +329,8 @@ model_train_method = {
     'deep': train_deep_learning,
     'ensemble': train_ensemble,
     'GP': train_gp,
-    'choose_best': train_best_using_validation
+    'choose_best': train_best_using_validation,
+    'knn': train_knn
 }
 model_train_method_for_choose_best = {
     'linear': train_linear,
@@ -264,7 +340,7 @@ model_train_method_for_choose_best = {
 }
 
 
-def train_model(X, y, model_name):
+def train_model(X, y, model_name, use_knn=False):
     """Trains a ML model to predict y based on X input.
 
        Parameters
@@ -277,9 +353,9 @@ def train_model(X, y, model_name):
 
        model_name : string
            The name of the type of model desired to train.
-           Options are 'linear', 'xg_boost', 'deep', 'ensemble', 'choose_best', 'GP'
+           Options are 'linear', 'xg_boost', 'deep', 'ensemble', 'choose_best', 'GP', 'knn'
        """
-    return model_train_method[model_name](X, y)
+    return model_train_method[model_name](X, y, use_knn)
 
 
 def cross_validation_eval(achilles_effect, expression_dat, target_gene_name, cross_validation_df, model_name,
@@ -362,8 +438,54 @@ def cross_validation_eval(achilles_effect, expression_dat, target_gene_name, cro
         return -1, -1
 
 
-def train_test_eval(achilles_effect, expression_dat, target_gene_name, train_test_df, model_name,
+def handle_nans(x_train, y_train):
+    indices_where_nan = np.argwhere(np.isnan(y_train)).flatten()
+    y_train = np.delete(y_train, indices_where_nan)
+    x_train = np.delete(x_train, indices_where_nan, axis=0)
+    return x_train, y_train
+
+
+def train_no_eval(achilles_effect, expression_dat, target_gene_name, model_name,
                      achilles_id_name='DepMap_ID', expression_id_name='Unnamed: 0'):
+    """Trains a ML model to predict y based on X input using a train/test split
+
+           Parameters
+           ----------
+           achilles_effect : pd.DataFrame
+               contains at least two columns, cell id column and target gene achilles scores
+
+           expression_dat : pd.DataFrame
+               expression data of all genes to be used for input to ML
+
+           target_gene_name: String
+                name of target gene column in achilles_effect dataframe
+
+           model_name : string
+               The name of the type of model desired to train.
+               Options are 'linear', 'xg_boost', 'deep', 'ensemble', 'choose_best', 'GP'
+
+           achilles_id_name : string
+               The column name of cell line id column in the achilles data set
+
+           expression_id_name : string
+               The column name of cell line id column in the expression data set
+           """
+    achilles_effect = achilles_effect.sort_values(by=['DepMap_ID'])
+    y = achilles_effect[target_gene_name]
+    expression_dat = expression_dat.sort_values(by=['Unnamed: 0'])
+    expression_feature_indices = get_features(y, expression_dat, 10)
+    in_use_gene_names = expression_dat.columns[expression_feature_indices]
+    in_use_gene_names = sorted(in_use_gene_names)
+    x_train = expression_dat[in_use_gene_names]
+    x_train = np.array(x_train)
+    train_y = np.array(y)
+    x_train, train_y = handle_nans(x_train, train_y)
+    model = train_model(x_train, train_y, model_name, True)
+    return model, in_use_gene_names
+
+
+def train_test_eval(achilles_effect, expression_dat, target_gene_name, train_test_df, model_name,
+                     achilles_id_name='DepMap_ID', expression_id_name='Unnamed: 0', use_knn=False):
     """Trains a ML model to predict y based on X input using a train/test split
         and prints the final cross validated pearson correlations and RMSE.
 
@@ -399,6 +521,7 @@ def train_test_eval(achilles_effect, expression_dat, target_gene_name, train_tes
         test_start_idx += 1
     rmse_sum = 0
     fold_count = 0
+    pred_p_val = -1
     pearson_corr_pred_sum = 0
     model_failed = False
     fold_count += 1
@@ -423,8 +546,10 @@ def train_test_eval(achilles_effect, expression_dat, target_gene_name, train_tes
     x_test = test_expression[in_use_gene_names]
     x_test = np.array(x_test)
     test_y = np.array(test_y)
+    x_train, train_y = handle_nans(x_train, train_y)
+    x_test, test_y = handle_nans(x_test, test_y)
     try:
-        model = train_model(x_train, train_y, model_name)
+        model = train_model(x_train, train_y, model_name, use_knn=use_knn)
         test_pred = model.predict(x_test)
         rmse = get_rmse(test_pred, test_y)
         pred_corr, pred_p_val = pearsonr(test_pred, test_y)
@@ -443,7 +568,8 @@ def train_test_eval(achilles_effect, expression_dat, target_gene_name, train_tes
 
 def run_on_target(gene_effect_file_name, gene_expression_file_name, target_gene_name, model_name, log_output,
                   num_folds=5,
-                  cv_df_file_name=None, train_test_df_file_name=None):
+                  cv_df_file_name=None, train_test_df_file_name=None, return_model=False, genes_for_features=None,
+                  use_knn=False):
     to_print = "{}: Beginning processing gene {}".format(str(datetime.datetime.now()), target_gene_name)
     if log_output is not None:
         print(to_print, file=open(log_output, 'w'))
@@ -460,14 +586,28 @@ def run_on_target(gene_effect_file_name, gene_expression_file_name, target_gene_
     achilles_id_col_name = 'DepMap_ID'
     expression_id_col_name = 'Unnamed: 0'
     achilles_scores = achilles_scores[[achilles_id_col_name, target_gene_name]]
-    if num_folds > 1:
+    if genes_for_features:
+        intersection_genes = list(genes_for_features.intersection(set(gene_expression.columns))) + [expression_id_col_name]
+        gene_expression = gene_expression[intersection_genes]
+    model = None
+    features = None
+    if num_folds == 0:
+        model, features = train_no_eval(achilles_scores, gene_expression, target_gene_name,
+                                                    model_name)
+        cv_rmse = None
+        cv_pearson = None
+        pearson_p_val = None
+    elif num_folds > 1:
         cv_rmse, cv_pearson = cross_validation_eval(achilles_scores, gene_expression, target_gene_name, cv_df,
                                                     model_name)
         pearson_p_val = None
     else:
         cv_rmse, cv_pearson, pearson_p_val = train_test_eval(achilles_scores, gene_expression, target_gene_name, train_test_df,
-                                                    model_name)
-    return target_gene_name, cv_rmse, cv_pearson, pearson_p_val
+                                                    model_name, use_knn=use_knn)
+    if return_model:
+        return target_gene_name, cv_rmse, cv_pearson, pearson_p_val, model, features
+    else:
+        return target_gene_name, cv_rmse, cv_pearson, pearson_p_val, None, None
 
 
 def parse_args():
@@ -477,10 +617,12 @@ def parse_args():
     parser.add_argument('--gene_expression',
                         default='CCLE_expression.csv')
     parser.add_argument('--target_gene_name',
-                        default='BRAF')
+                        default='CHMP1A')
     parser.add_argument('--model_name', help="Options are 'linear', 'xg_boost', 'deep', 'ensemble', 'choose_best', "
                                              "'GP'",
                         default='GP')
+    parser.add_argument('--num_folds', help="Cross validation folds. Default is train/test, i.e. 1",
+                        default=1)
     parser.add_argument('--cv_file', help="Cross validation ids file path. See data_helper.py for how to create such "
                                           "a file.",
                         default="cross_validation_folds_ids.tsv")
@@ -494,7 +636,8 @@ def parse_args():
 
 if __name__ == '__main__':
     args = parse_args()
-    _, cv_rmse, cv_pearson = run_on_target(args.gene_effect, args.gene_expression, args.target_gene_name,
-                                           args.model_name, args.log_output, 1, args.cv_file, args.train_test_file)
+    _, cv_rmse, cv_pearson, _, _, _ = run_on_target(args.gene_effect, args.gene_expression, args.target_gene_name,
+                                           args.model_name, args.log_output, args.num_folds, args.cv_file,
+                                                    args.train_test_file, use_knn=True)
     print("rmse " + str(cv_rmse))
     print("cv_pearson " + str(cv_pearson))

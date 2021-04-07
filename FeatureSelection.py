@@ -49,7 +49,7 @@ def get_top_k_columns_by_chi_squared(target, df, k):
     else:
         chi_squared_list = []
         for idx, col_name in enumerate(df.columns):
-            if idx > 0:
+            if df.columns[idx] != 'Unnamed: 0':
                 mean_of_cur_gene = df[df.columns[idx]].mean()
                 B = df[df.columns[idx]] > mean_of_cur_gene
                 try:
@@ -69,7 +69,7 @@ def get_top_k_columns_by_spearman_correlation(target, df, k):
     else:
         correlation_list = []
         for idx, col_name in enumerate(df.columns):
-            if idx > 0:  # TODO change this to use column name
+            if df.columns[idx] != 'Unnamed: 0':  # TODO change this to use column name
                 try:
                     # TODO handle nans better
                     corr, p_val = spearmanr(target, df[df.columns[idx]])
@@ -88,7 +88,7 @@ def get_top_k_columns_by_correlation(target, df, k):
     else:
         correlation_list = []
         for idx, col_name in enumerate(df.columns):
-            if idx > 0:
+            if df.columns[idx] != 'Unnamed: 0':
                 try:
                     # TODO handle nans better
                     corr, p_val = pearsonr(target, df[df.columns[idx]])

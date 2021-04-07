@@ -129,8 +129,10 @@ def get_intersecting_gene_ids_and_data(gene_effect_file, gene_expression_file, a
         train_test_df = create_train_test_df(in_use_ids)
     if cv_df_file:
         cv_df = pd.read_csv(cv_df_file, sep="\t")
-    else:
+    elif num_folds > 1:
         cv_df = create_cv_folds_df(in_use_ids, num_folds)
+    else:
+        cv_df = None
     return achilles_scores, gene_expression, train_test_df, cv_df
 
 

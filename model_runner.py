@@ -29,7 +29,7 @@ def process_gene_list(gene_effect_file_name, gene_expression_file_name, gene_lis
 
 def print_results(gene_results, out_file):
     with open(out_file, 'w') as f_out:
-        for gene_name, rmse, corr, p_val in gene_results:
+        for gene_name, rmse, corr, p_val, _, _ in gene_results:
             if p_val is not None:
                 to_write = "{}\t{}\t{}\t{}\n".format(gene_name, str(rmse), str(corr), str(p_val))
             else:
