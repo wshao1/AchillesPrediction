@@ -19,7 +19,7 @@ def process_gene_list(gene_effect_file_name, gene_expression_file_name, gene_lis
                       train_test_file_name=None,
                       num_threads=16, log_output=None):
     params_list = [(gene_effect_file_name, gene_expression_file_name, gene_name,
-                    model_name, log_output, num_folds, cv_df_file_name, train_test_file_name) for gene_name in gene_list]
+                    model_name, log_output, None, num_folds, cv_df_file_name, train_test_file_name) for gene_name in gene_list]
     with Pool(num_threads) as p:
         res = p.starmap(run_on_target, params_list)
         p.close()
@@ -72,6 +72,6 @@ if __name__ == '__main__':
                             args.num_folds,
                             args.train_test_file,
                             args.num_threads, args.log_output)
-    out_file = args.results_directory + gene_list_name + ".res.txt"
+    out_file = args.results_directory + gene_list_name + "_{}_".format(args.model_name) + ".res.txt"
     check_dir_exists_or_make(args.results_directory)
     print_results(res, out_file)
