@@ -710,7 +710,7 @@ def run_on_target(gene_effect_file_name, gene_expression_file_name, target_gene_
                                                               train_test_df_file=train_test_df_file_name,
                                                               num_folds=num_folds)
 
-    achilles_scores = copy_number_correction(achilles_scores, target_gene_name, old_col_names)
+    # achilles_scores = copy_number_correction(achilles_scores, target_gene_name, old_col_names)
 
     achilles_scores, gene_expression, \
     train_test_df, cv_df = get_intersecting_gene_ids_with_data_input(gene_expression,
