@@ -19,7 +19,7 @@ def process_gene_list(gene_effect_file_name, gene_expression_file_name, gene_lis
                       train_test_file_name=None,
                       num_threads=16, log_output=None):
     params_list = [(gene_effect_file_name, gene_expression_file_name, gene_name,
-                    model_name, log_output, None, num_folds, cv_df_file_name, train_test_file_name) for gene_name in gene_list]
+                    model_name, log_output, None, num_folds, cv_df_file_name, train_test_file_name, True) for gene_name in gene_list]
     with Pool(num_threads) as p:
         res = p.starmap(run_on_target, params_list)
         p.close()
@@ -29,9 +29,9 @@ def process_gene_list(gene_effect_file_name, gene_expression_file_name, gene_lis
 
 def print_results(gene_results, out_file):
     with open(out_file, 'w') as f_out:
-        for gene_name, rmse, corr, p_val, _, _ in gene_results:
+        for gene_name, rmse, corr, p_val, _, _, model in gene_results:
             if p_val is not None:
-                to_write = "{}\t{}\t{}\t{}\n".format(gene_name, str(rmse), str(corr), str(p_val))
+                to_write = "{}\t{}\t{}\t{}\t{}\n".format(gene_name, str(rmse), str(corr), str(p_val), model.min_model)
             else:
                 to_write = "{}\t{}\t{}\n".format(gene_name, str(rmse), str(corr))
             f_out.write(to_write)
@@ -44,7 +44,7 @@ def parse_args():
     parser.add_argument('--gene_expression_file',
                         default='CCLE_expression.csv')
     parser.add_argument('--model_name', help="Options are 'linear', 'xg_boost', 'deep', 'ensemble', 'choose_best'",
-                        default='xg_boost')
+                        default='choose_best')
     parser.add_argument('--cv_file', help="Cross validation ids file path. See data_helper.py for how to create such "
                                           "a file.",
                         default="cross_validation_folds_ids.tsv")

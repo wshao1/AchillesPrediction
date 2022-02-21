@@ -289,6 +289,7 @@ class Ensemble:
 
 class ChooseBest:
     model = None
+    min_model = ""
 
     def __init__(self):
         self.model = None
@@ -304,7 +305,7 @@ class ChooseBest:
             if val_rmse < min_rmse:
                 min_rmse = val_rmse
                 min_model = model_name
-
+        self.min_model = min_model
         self.model = model_train_method[min_model](X, y)
 
     def predict(self, X):
