@@ -365,7 +365,7 @@ model_train_method = {
 model_train_method_for_choose_best = {
     'linear': train_linear,
     'xg_boost': train_xgboost,
-    'ensemble': train_ensemble,
+    'deep': train_deep_learning,
     'GP': train_gp,
 }
 
