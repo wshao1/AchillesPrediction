@@ -2,12 +2,15 @@ import pandas as pd
 import numpy as np
 from matplotlib import pyplot as plt
 import joblib
-from Models import process_for_training
+import warnings
+from scipy.stats import pearsonr, spearmanr
+from Models import process_for_training, train_no_eval
 from configuration import gene_effect_file, gene_expression_file
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, DotProduct, WhiteKernel
 import random
-from data_helper import get_intersection_gene_effect_expression_ids, clean_gene_names, create_train_test_df
+from data_helper import get_intersection_gene_effect_expression_ids, clean_gene_names, create_train_test_df, \
+    get_intersecting_gene_ids_and_data
 
 
 def get_percentile_binned_data(vec, num_bins=5):
@@ -131,14 +134,156 @@ def plot_cn_essentiality(cn_cols, data_df, is_corrected, target_name):
     x = 0
 
 
-if __name__ == '__main__':
+
+def number_one_correction():
     achilles_id_col_name = 'DepMap_ID'
-    target_col = 'VRK1 (7443)'#'BRAF (673)', 'NHLRC2 (374354)'#'VRK1 (7443)','SOX9 (6662)', 'PMM2 (5373)', 'PRKAR1A (5573)', 'A1BG (1)', 'A1CF (29974)', 'ABCA1 (19)', 'ABCF3 (55324)', 'MITF (4286)'
-    target_name = "VRK1"
+    cn_id_name = "Unnamed: 0"
+    target_col = 'FAM50A (9130)'
+    target_gene_name = 'ATP2A2'
+    achilles_scores, gene_expression, \
+    train_test_df, cv_df = get_intersecting_gene_ids_and_data('CRISPR_gene_effect.csv', 'CCLE_expression.csv',
+                                       train_test_df_file="train_test_split.tsv", num_folds=0)
+    copy_number_data = pd.read_csv("CCLE_gene_cn.csv")#, usecols=[cn_id_name, target_col])#.dropna()
+
+    copy_number_data = clean_gene_names(copy_number_data, cn_id_name)
+    copy_number_data = copy_number_data[[cn_id_name, target_gene_name]]
+    dep_map_id_achilles = set(achilles_scores['DepMap_ID'])
+    cn_ids = set(copy_number_data[cn_id_name])
+    in_use_ids = dep_map_id_achilles.intersection(cn_ids)
+    achilles_scores = achilles_scores.loc[achilles_scores[achilles_id_col_name].isin(in_use_ids)].sort_values(by=[achilles_id_col_name])
+    gene_expression = gene_expression.loc[gene_expression[cn_id_name].isin(in_use_ids)].sort_values(by=['Unnamed: 0'])
+    copy_number_data = copy_number_data.loc[copy_number_data[cn_id_name].isin(in_use_ids)].sort_values(by=['Unnamed: 0'])
+
+    # in_genes = sorted(list(set(achilles_scores.columns).intersection(set(copy_number_data.columns))))
+    # large_pos_corr = []
+    # for gene in in_genes:
+    #     essential = achilles_scores[gene]
+    #     cn = copy_number_data[gene]
+    #     corr, p_val = pearsonr(essential.values, cn.values)
+    #     if corr >= 0.2:
+    #         large_pos_corr.append(gene)
+    # x = 0
+    # copy_number_data = copy_number_data[[cn_id_name, target_gene_name]]
+    tissue_specific_cn_analysis(gene_expression, achilles_scores, copy_number_data, target_gene_name)
+
+    # cur_pear, p_val = pearsonr(copy_number_data[target_gene_name], achilles_scores[target_gene_name])
+    # copy_number_data = copy_number_data[cn_id_name, target_col]
+    model, features = train_no_eval(achilles_scores, gene_expression, target_gene_name,
+                                    "linear", num_features=20, copy_number_data=copy_number_data)
+    cn_effect = model.model.coef_[-1]
+    achilles_scores[target_gene_name] = achilles_scores[target_gene_name].values - copy_number_data[target_gene_name].values * cn_effect
+    model, features = train_no_eval(achilles_scores, gene_expression, target_gene_name,
+                                    "linear", num_features=10, copy_number_data=None, should_plot=True,
+                                    include_target_gene=True)
+
+    x = 0
+
+
+def tissue_specific_cn_analysis(expression_dat, achilles_effect, copy_number_data, target_gene_name):
+
+    sample_info = pd.read_csv("sample_info.csv")
+    tissue_types = []
+    tissue_count = {}
+    for cell_id in expression_dat['Unnamed: 0']:
+        cur_tissue = list(sample_info[['DepMap_ID', 'sample_collection_site']][
+                              sample_info.DepMap_ID == cell_id].sample_collection_site)[0]
+        tissue_types.append(cur_tissue)
+        if cur_tissue not in tissue_count:
+            tissue_count[cur_tissue] = 1
+        else:
+            cur_count = tissue_count[cur_tissue]
+            tissue_count[cur_tissue] = cur_count + 1
+    expression_dat["tissue_types"] = tissue_types
+    achilles_effect["tissue_types"] = tissue_types
+    copy_number_data["tissue_types"] = tissue_types
+    print("essentiality vs target expression")
+    print(pearsonr(achilles_effect[target_gene_name].values, expression_dat[target_gene_name].values))
+    print("target expression vs cn")
+    print(pearsonr(expression_dat[target_gene_name].values, copy_number_data[target_gene_name].values))
+    print("essentiality vs cn")
+    print(pearsonr(achilles_effect[target_gene_name].values, copy_number_data[target_gene_name].values))
+    old_achilles = achilles_effect.copy()
+    large_tissues = [tiss for tiss, cnt in tissue_count.items() if cnt > 10]
+    tissues_list = []
+    # large_tissues = ['Colon']
+    for tissue in large_tissues:
+        cur_expression = expression_dat[expression_dat["tissue_types"] == tissue]
+        cur_achilles = achilles_effect[achilles_effect["tissue_types"] == tissue]
+        cur_cn_data = copy_number_data[copy_number_data["tissue_types"] == tissue]
+        model, features = train_no_eval(cur_achilles.drop('tissue_types', 1), cur_expression.drop('tissue_types', 1), target_gene_name,
+                                        "least_squares", num_features=20, copy_number_data=cur_cn_data.drop('tissue_types', 1))
+        x_train = cur_expression[features[:-1]]
+        copy_number_target = cur_cn_data[target_gene_name]
+        x_train["copy_number"] = np.nan_to_num(copy_number_target, nan=np.median(copy_number_target.values))
+        # before = x_train.copy()
+        x_train = np.array(x_train)
+        x_train = model.sclr.transform(x_train)
+        cn_scaled = x_train[:, -1]
+        cn_effect = model.model.coef_[-1]
+        cur_achilles[target_gene_name] = cur_achilles[target_gene_name].values - cn_scaled * cn_effect
+
+        print(f"before {tissue}")
+        old_corr, p_val = pearsonr(achilles_effect[achilles_effect['tissue_types'] == tissue][target_gene_name].values, copy_number_data[copy_number_data['tissue_types'] == tissue][target_gene_name].values)
+        print(old_corr)
+        achilles_effect.loc[achilles_effect['tissue_types'] == tissue, target_gene_name] = cur_achilles[target_gene_name]
+
+        if abs(cn_effect) > 0:
+            corr, p_val = pearsonr(achilles_effect[achilles_effect['tissue_types'] == tissue][target_gene_name].values,
+                                    copy_number_data[copy_number_data['tissue_types'] == tissue][
+                                        target_gene_name].values)
+            if abs(old_corr - corr) > 0.1 and old_corr > 0:
+                tissues_list.append(tissue)
+            print(cn_effect)
+            print("after")
+            print(corr)
+        # new_achilles = achilles_effect[target_gene_name].values
+        x = 0
+    labels = []
+    seq_of_data = []
+    for tissue in large_tissues:
+        cur_achilles = achilles_effect[achilles_effect["tissue_types"] == tissue][target_gene_name]
+        seq_of_data.append(cur_achilles.values)
+        
+    plt.boxplot(seq_of_data, labels=large_tissues)
+    plt.show()
+    X = 0
+        
+
+    model, features = train_no_eval(old_achilles.drop('tissue_types', 1), expression_dat.drop('tissue_types', 1),
+                                    target_gene_name,
+                                    "least_squares", num_features=10, copy_number_data=None, should_plot=True,
+                                    include_target_gene=True, tissues_list=tissues_list, header="uncorrected")
+    model, features = train_no_eval(achilles_effect.drop('tissue_types', 1), expression_dat.drop('tissue_types', 1), target_gene_name,
+                                    "least_squares", num_features=10, copy_number_data=None, should_plot=True,
+                                    include_target_gene=True, tissues_list=tissues_list, header="corrected")
+    # model, features = train_no_eval(old_achilles.drop('tissue_types', 1), expression_dat.drop('tissue_types', 1),
+    #                                 target_gene_name,
+    #                                 "xg_boost", num_features=10, copy_number_data=None, should_plot=True,
+    #                                 include_target_gene=True, tissues_list=tissues_list, header="uncorrected")
+    # model, features = train_no_eval(achilles_effect.drop('tissue_types', 1), expression_dat.drop('tissue_types', 1),
+    #                                 target_gene_name,
+    #                                 "xg_boost", num_features=10, copy_number_data=None, should_plot=True,
+    #                                 include_target_gene=True, tissues_list=tissues_list, header="corrected")
+    # new_achilles = achilles_effect[target_gene_name].values
+    model, features = train_no_eval(achilles_effect.drop('tissue_types', 1), expression_dat.drop('tissue_types', 1),
+                                    target_gene_name,
+                                    "tree", num_features=10, copy_number_data=None, should_plot=True,
+                                    include_target_gene=True, tissues_list=tissues_list)
+    print(pearsonr(achilles_effect[target_gene_name].values, copy_number_data[target_gene_name].values))
+    x=0
+
+
+if __name__ == '__main__':
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        number_one_correction()
+    achilles_id_col_name = 'DepMap_ID'
+    target_col = 'FAM50A (9130)' #'VRK1 (7443)', 'BRAF (673)', 'NHLRC2 (374354)'#'VRK1 (7443)','SOX9 (6662)', 'PMM2 (5373)', 'PRKAR1A (5573)', 'A1BG (1)', 'A1CF (29974)', 'ABCA1 (19)', 'ABCF3 (55324)', 'MITF (4286)', 'FAM50A (9130)'
+    target_name = "FAM50A"
     cn_id_name = "Unnamed: 0"
     achilles_data = pd.read_csv(gene_effect_file, usecols=[achilles_id_col_name, target_col]).dropna() #
     copy_number_data = pd.read_csv("CCLE_gene_cn.csv", usecols=[cn_id_name, target_col])#.dropna()
-    achilles_scores = clean_gene_names(achilles_data, achilles_id_col_name)
+    # achilles_scores = clean_gene_names(achilles_data, achilles_id_col_name)
     copy_number_data = clean_gene_names(copy_number_data, cn_id_name)
     target_col = target_col.split("(")[0].strip()
     in_use_ids = get_intersection_gene_effect_expression_ids(achilles_data, copy_number_data)

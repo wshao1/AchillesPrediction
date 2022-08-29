@@ -137,23 +137,33 @@ def get_intersecting_gene_ids_with_data_input(gene_expression, achilles_scores, 
 def get_intersecting_gene_ids_and_data(gene_effect_file, gene_expression_file, achilles_id_col_name='DepMap_ID',
                                        expression_id_col_name='Unnamed: 0', cv_df_file=None, train_test_df_file=None,
                                        should_clean_gene_names=True, num_folds=5):
-    achilles_scores = pd.read_csv(gene_effect_file).dropna()
-    gene_expression = pd.read_csv(gene_expression_file)
-    in_use_ids = get_intersection_gene_effect_expression_ids(achilles_scores, gene_expression)
-    achilles_scores = achilles_scores.loc[achilles_scores[achilles_id_col_name].isin(in_use_ids)]
-    gene_expression = gene_expression.loc[gene_expression[expression_id_col_name].isin(in_use_ids)]
-    if should_clean_gene_names:
-        achilles_scores = clean_gene_names(achilles_scores, achilles_id_col_name)
-        gene_expression = clean_gene_names(gene_expression, expression_id_col_name)
+    ready_achilles_file = "ready_achilles.csv"
+    ready_expression_file = "ready_gene_expression.csv"
+    if os.path.isfile(ready_achilles_file) and os.path.isfile(ready_expression_file):
+        gene_expression = pd.read_csv(ready_expression_file)#.sort_values(by=['Unnamed: 0'])
+        achilles_scores = pd.read_csv(ready_achilles_file)#.sort_values(by=['DepMap_ID'])
+    else:
+        achilles_scores = pd.read_csv(gene_effect_file).dropna()
+        gene_expression = pd.read_csv(gene_expression_file)
+        in_use_ids = get_intersection_gene_effect_expression_ids(achilles_scores, gene_expression)
+        achilles_scores = achilles_scores.loc[achilles_scores[achilles_id_col_name].isin(in_use_ids)]
+        gene_expression = gene_expression.loc[gene_expression[expression_id_col_name].isin(in_use_ids)]
+        if should_clean_gene_names:
+            achilles_scores = clean_gene_names(achilles_scores, achilles_id_col_name)
+            gene_expression = clean_gene_names(gene_expression, expression_id_col_name)
+        achilles_scores.to_csv(ready_achilles_file, index=False)
+        gene_expression.to_csv(ready_expression_file, index=False)
     # gene_expression.to_csv("gene_expression_cell_lines_fixed.tsv", index=False, sep="\t")
     # achilles_scores.to_csv("achilles_effect_cell_lines_fixed.tsv", index=False, sep="\t")
     if train_test_df_file:
         train_test_df = pd.read_csv(train_test_df_file, sep="\t")
     else:
+        in_use_ids = get_intersection_gene_effect_expression_ids(achilles_scores, gene_expression)
         train_test_df = create_train_test_df(in_use_ids)
     if cv_df_file:
         cv_df = pd.read_csv(cv_df_file, sep="\t")
     elif num_folds > 1:
+        in_use_ids = get_intersection_gene_effect_expression_ids(achilles_scores, gene_expression)
         cv_df = create_cv_folds_df(in_use_ids, num_folds)
     else:
         cv_df = None
