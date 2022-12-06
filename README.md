@@ -17,6 +17,6 @@ In order to train a model using a train/test split using XGBoost and then make a
 # this is python code
 from Models import run_on_target
 _, avg_rmse, avg_pearson, _, _, _, model = run_on_target(essentiality_file, expression_file, target_gene_name,
-                                           xg_boost, None, num_folds=1, return_model=True)
+                                           "xg_boost", None, num_folds=1, return_model=True)
 model.predict(test_expression_data)
 ```
