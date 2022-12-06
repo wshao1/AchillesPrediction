@@ -404,7 +404,7 @@ if __name__ == '__main__':
     plt.show()
     x = 0
 
-    target_gene_name, cv_rmse, cv_pearson, pearson_p_val, model, features = process_for_training(data_df_corrrected, gene_expression, target_name, "xg_boost", train_test_df, None,
+    target_gene_name, cv_rmse, cv_pearson, pearson_p_val, model, features, _ = process_for_training(data_df_corrrected, gene_expression, target_name, "xg_boost", train_test_df, None,
                          None,
                          1,
                          True, None,

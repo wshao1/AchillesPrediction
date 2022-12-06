@@ -1006,9 +1006,9 @@ def process_for_training(achilles_scores, gene_expression, target_gene_name, mod
                                                                  model_name, use_knn=use_knn, should_plot=should_plot, num_features=num_features)
         if return_model:
             model_res = model.min_model if model_name == "choose_best" else model_name
-            return target_gene_name, cv_rmse, cv_pearson, pearson_p_val, model_res, features
+            return target_gene_name, cv_rmse, cv_pearson, pearson_p_val, model_res, features, model
         else:
-            return target_gene_name, cv_rmse, cv_pearson, pearson_p_val, None, None
+            return target_gene_name, cv_rmse, cv_pearson, pearson_p_val, None, None, None
     except Exception as inst:
         print("Exception on {} with {}".format(target_gene_name, "train/test split"))
         print(str(inst))
@@ -1044,8 +1044,8 @@ def parse_args():
 
 if __name__ == '__main__':
     args = parse_args()
-    _, cv_rmse, cv_pearson, _, _, _ = run_on_target(args.gene_effect, args.gene_expression, args.target_gene_name,
+    _, cv_rmse, cv_pearson, _, _, _, _ = run_on_target(args.gene_effect, args.gene_expression, args.target_gene_name,
                                            args.model_name, args.log_output, None, args.num_folds, args.cv_file,
-                                                    args.train_test_file, use_knn=False, should_plot=True, num_features=args.num_features,)
+                                                    args.train_test_file, use_knn=False, should_plot=True, num_features=args.num_features)
     print("rmse " + str(cv_rmse))
     print("cv_pearson " + str(cv_pearson))
