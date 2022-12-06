@@ -14,7 +14,6 @@ import tensorflow as tf
 from tensorflow.keras.layers.experimental import preprocessing
 from tensorflow.python.keras.applications.densenet import layers
 import matplotlib.pyplot as plt
-from configuration import ensemble_id_name_map_file
 from data_helper import get_intersecting_gene_ids_and_data, clean_gene_names, get_intersecting_gene_ids_with_data_input
 from abc import ABC, abstractmethod
 import argparse
@@ -93,28 +92,6 @@ def inverse_squared(weights):
 
 def get_rmse(pred, true):
     return (sum((pred - true) ** 2) / len(true)) ** 0.5
-
-
-class EnsembleIDConverter:
-
-    gene_column_name = "Name"
-    gene_id_column_name = "geneID"
-    gene_id_lookup = pd.read_csv(ensemble_id_name_map_file, sep='\t', names=[gene_column_name, gene_id_column_name], header=None)#"roadmap.TPM.tsv"
-    gene_name_to_id_dict = dict(zip(gene_id_lookup.Name, gene_id_lookup.geneID))
-    gene_id_to_name_dict = dict(zip(gene_id_lookup.geneID, gene_id_lookup.Name))
-
-    def gene_id_to_name_lookup(self, gene_id):
-        gene_id = gene_id.split(".")[0]
-        if gene_id in self.gene_id_to_name_dict:
-            return self.gene_id_to_name_dict[gene_id]
-        else:
-            return "not-found"
-
-    def gene_name_to_id_lookup(self, gene_name):
-        if gene_name in self.gene_name_to_id_dict:
-            return self.gene_name_to_id_dict[gene_name]
-        else:
-            return "not-found"
 
 
 class KNNFeatureModel(ABC):
@@ -803,7 +780,7 @@ def train_test_eval(achilles_effect, expression_dat, target_gene_name, train_tes
         print(str(inst))
         model_failed = True
     if not model_failed:
-        return rmse_sum / fold_count, pearson_corr_pred_sum / fold_count, pred_p_val, model
+        return rmse_sum / fold_count, pearson_corr_pred_sum / fold_count, pred_p_val, model, in_use_gene_names
     else:
         return -1, -1, -1, None
 
@@ -1001,7 +978,7 @@ def process_for_training(achilles_scores, gene_expression, target_gene_name, mod
                                                         model_name, num_features=num_features)
             pearson_p_val = None
         else:
-            cv_rmse, cv_pearson, pearson_p_val, model = train_test_eval(achilles_scores, gene_expression, target_gene_name,
+            cv_rmse, cv_pearson, pearson_p_val, model, features = train_test_eval(achilles_scores, gene_expression, target_gene_name,
                                                                  train_test_df,
                                                                  model_name, use_knn=use_knn, should_plot=should_plot, num_features=num_features)
         if return_model:
@@ -1012,7 +989,7 @@ def process_for_training(achilles_scores, gene_expression, target_gene_name, mod
     except Exception as inst:
         print("Exception on {} with {}".format(target_gene_name, "train/test split"))
         print(str(inst))
-        return target_gene_name, 0, 0, 1, None, None
+        return target_gene_name, 0, 0, 1, None, None, None
 
 
 
@@ -1045,7 +1022,7 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
     _, cv_rmse, cv_pearson, _, _, _, _ = run_on_target(args.gene_effect, args.gene_expression, args.target_gene_name,
-                                           args.model_name, args.log_output, None, args.num_folds, args.cv_file,
-                                                    args.train_test_file, use_knn=False, should_plot=True, num_features=args.num_features)
+                                           args.model_name, args.log_output, None, int(args.num_folds), args.cv_file,
+                                                    args.train_test_file, use_knn=False, should_plot=False, num_features=args.num_features)
     print("rmse " + str(cv_rmse))
     print("cv_pearson " + str(cv_pearson))
