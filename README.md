@@ -38,7 +38,7 @@ from data_helper import clean_gene_names
 _, avg_rmse, avg_pearson, _, _, features, model = run_on_target(essentiality_file, expression_file, target_gene_name,
                                                          "xg_boost", None, num_folds=1, return_model=True)
 
-for_predict_expression = pd.read_csv(prediction_data_file)
+for_predict_expression = pd.read_csv(prediction_data_file) # Must be in the same format as the expression data from https://depmap.org/portal/download/
 for_predict_expression = for_predict_expression.sample(10)
 for_predict_expression = clean_gene_names(for_predict_expression, for_predict_expression.columns[0])
 for_predict_expression = for_predict_expression[features]
