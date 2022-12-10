@@ -12,6 +12,16 @@ def get_intersection_gene_effect_expression_ids(achilles_data, expression_data):
     return sorted(list(set(dep_map_id_achilles).intersection(set(dep_map_id_gene_expression))))
 
 
+def create_train_test_df_using_manual_input(train_ids, test_ids):
+    train_letters = ["train"] * len(train_ids)
+    test_letters = ["test"] * len(test_ids)
+    train_test_col = np.array(train_letters + test_letters)
+    df = pd.DataFrame(train_test_col, columns=["train_test_split"])
+    cur_col = np.array(train_ids + test_ids)
+    df["id"] = cur_col
+    return df
+
+
 def create_train_test_df(ids_list, out_name="train_test_split.tsv", random_state_id=0, save_file=False):
     train_percentage = 0.75
     num_ids = len(ids_list)
@@ -20,12 +30,7 @@ def create_train_test_df(ids_list, out_name="train_test_split.tsv", random_state
     train_ids_amount = int(train_percentage * num_ids)
     train_ids = sorted(ids_list[0:train_ids_amount])
     test_ids = sorted(ids_list[train_ids_amount:])
-    train_letters = ["train"] * len(train_ids)
-    test_letters = ["test"] * len(test_ids)
-    train_test_col = np.array(train_letters + test_letters)
-    df = pd.DataFrame(train_test_col, columns=["train_test_split"])
-    cur_col = np.array(train_ids + test_ids)
-    df["id"] = cur_col
+    df = create_train_test_df_using_manual_input(train_ids, test_ids)
     if save_file:
         df.to_csv(out_name, index=False, sep="\t")
     return df
@@ -168,6 +173,22 @@ def get_intersecting_gene_ids_and_data(gene_effect_file, gene_expression_file, a
     else:
         cv_df = None
     return achilles_scores, gene_expression, train_test_df, cv_df
+
+
+def get_tissue_types(expression_dat, sample_info_file="sample_info.csv"):
+    sample_info = pd.read_csv(sample_info_file)
+    tissue_types = []
+    tissue_count = {}
+    for cell_id in expression_dat['Unnamed: 0']:
+        cur_tissue = list(sample_info[['DepMap_ID', 'sample_collection_site']][
+                              sample_info.DepMap_ID == cell_id].sample_collection_site)[0]
+        tissue_types.append(cur_tissue)
+        if cur_tissue not in tissue_count:
+            tissue_count[cur_tissue] = 1
+        else:
+            cur_count = tissue_count[cur_tissue]
+            tissue_count[cur_tissue] = cur_count + 1
+    return tissue_types, tissue_count
 
 
 def parse_args():

@@ -10,7 +10,7 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, DotProduct, WhiteKernel
 import random
 from data_helper import get_intersection_gene_effect_expression_ids, clean_gene_names, create_train_test_df, \
-    get_intersecting_gene_ids_and_data
+    get_intersecting_gene_ids_and_data, get_tissue_types
 
 
 def get_percentile_binned_data(vec, num_bins=5):
@@ -181,18 +181,19 @@ def number_one_correction():
 
 def tissue_specific_cn_analysis(expression_dat, achilles_effect, copy_number_data, target_gene_name):
 
-    sample_info = pd.read_csv("sample_info.csv")
-    tissue_types = []
-    tissue_count = {}
-    for cell_id in expression_dat['Unnamed: 0']:
-        cur_tissue = list(sample_info[['DepMap_ID', 'sample_collection_site']][
-                              sample_info.DepMap_ID == cell_id].sample_collection_site)[0]
-        tissue_types.append(cur_tissue)
-        if cur_tissue not in tissue_count:
-            tissue_count[cur_tissue] = 1
-        else:
-            cur_count = tissue_count[cur_tissue]
-            tissue_count[cur_tissue] = cur_count + 1
+    # sample_info = pd.read_csv("sample_info.csv")
+    # tissue_types = []
+    # tissue_count = {}
+    # for cell_id in expression_dat['Unnamed: 0']:
+    #     cur_tissue = list(sample_info[['DepMap_ID', 'sample_collection_site']][
+    #                           sample_info.DepMap_ID == cell_id].sample_collection_site)[0]
+    #     tissue_types.append(cur_tissue)
+    #     if cur_tissue not in tissue_count:
+    #         tissue_count[cur_tissue] = 1
+    #     else:
+    #         cur_count = tissue_count[cur_tissue]
+    #         tissue_count[cur_tissue] = cur_count + 1
+    tissue_types, tissue_count = get_tissue_types(expression_dat)
     expression_dat["tissue_types"] = tissue_types
     achilles_effect["tissue_types"] = tissue_types
     copy_number_data["tissue_types"] = tissue_types
