@@ -7,7 +7,7 @@ import os
 
 
 def get_intersection_gene_effect_expression_ids(achilles_data, expression_data):
-    dep_map_id_achilles = achilles_data['DepMap_ID']
+    dep_map_id_achilles = achilles_data['ModelID']
     dep_map_id_gene_expression = expression_data['Unnamed: 0']
     return sorted(list(set(dep_map_id_achilles).intersection(set(dep_map_id_gene_expression))))
 
@@ -115,7 +115,7 @@ def check_dir_exists_or_make(name):
         os.mkdir(name)
 
 
-def get_intersecting_gene_ids_with_data_input(gene_expression, achilles_scores, achilles_id_col_name='DepMap_ID',
+def get_intersecting_gene_ids_with_data_input(gene_expression, achilles_scores, achilles_id_col_name='ModelID',
                                        expression_id_col_name='Unnamed: 0', cv_df_file=None, train_test_df_file=None,
                                        should_clean_gene_names=True, num_folds=5):
     in_use_ids = get_intersection_gene_effect_expression_ids(achilles_scores, gene_expression)
@@ -139,25 +139,27 @@ def get_intersecting_gene_ids_with_data_input(gene_expression, achilles_scores, 
     return achilles_scores, gene_expression, train_test_df, cv_df
 
 
-def get_intersecting_gene_ids_and_data(gene_effect_file, gene_expression_file, achilles_id_col_name='DepMap_ID',
+def get_intersecting_gene_ids_and_data(gene_effect_file, gene_expression_file, achilles_id_col_name='ModelID',
                                        expression_id_col_name='Unnamed: 0', cv_df_file=None, train_test_df_file=None,
                                        should_clean_gene_names=True, num_folds=5):
     ready_achilles_file = "ready_achilles.csv"
     ready_expression_file = "ready_gene_expression.csv"
     if os.path.isfile(ready_achilles_file) and os.path.isfile(ready_expression_file):
         gene_expression = pd.read_csv(ready_expression_file)#.sort_values(by=['Unnamed: 0'])
-        achilles_scores = pd.read_csv(ready_achilles_file)#.sort_values(by=['DepMap_ID'])
+        achilles_scores = pd.read_csv(ready_achilles_file)#.sort_values(by=['ModelID'])
     else:
-        achilles_scores = pd.read_csv(gene_effect_file).dropna()
-        gene_expression = pd.read_csv(gene_expression_file)
+        # achilles_scores = pd.read_csv(gene_effect_file).dropna()
+        # gene_expression = pd.read_csv(gene_expression_file)
+        achilles_scores = gene_effect_file.dropna()
+        gene_expression = gene_expression_file
         in_use_ids = get_intersection_gene_effect_expression_ids(achilles_scores, gene_expression)
         achilles_scores = achilles_scores.loc[achilles_scores[achilles_id_col_name].isin(in_use_ids)]
         gene_expression = gene_expression.loc[gene_expression[expression_id_col_name].isin(in_use_ids)]
         if should_clean_gene_names:
             achilles_scores = clean_gene_names(achilles_scores, achilles_id_col_name)
             gene_expression = clean_gene_names(gene_expression, expression_id_col_name)
-        achilles_scores.to_csv(ready_achilles_file, index=False)
-        gene_expression.to_csv(ready_expression_file, index=False)
+        # achilles_scores.to_csv(ready_achilles_file, index=False)
+        # gene_expression.to_csv(ready_expression_file, index=False)
     # gene_expression.to_csv("gene_expression_cell_lines_fixed.tsv", index=False, sep="\t")
     # achilles_scores.to_csv("achilles_effect_cell_lines_fixed.tsv", index=False, sep="\t")
     if train_test_df_file:
@@ -180,8 +182,8 @@ def get_tissue_types(expression_dat, sample_info_file="sample_info.csv"):
     tissue_types = []
     tissue_count = {}
     for cell_id in expression_dat['Unnamed: 0']:
-        cur_tissue = list(sample_info[['DepMap_ID', 'sample_collection_site']][
-                              sample_info.DepMap_ID == cell_id].sample_collection_site)[0]
+        cur_tissue = list(sample_info[['ModelID', 'sample_collection_site']][
+                              sample_info.ModelID == cell_id].sample_collection_site)[0]
         tissue_types.append(cur_tissue)
         if cur_tissue not in tissue_count:
             tissue_count[cur_tissue] = 1

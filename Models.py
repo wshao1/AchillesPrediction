@@ -8,21 +8,22 @@ from xgboost import XGBRegressor
 from sklearn import tree
 from sklearn.utils import resample
 import numpy as np
-from FeatureSelection import get_features
+from AchillesPrediction.FeatureSelection import get_features
 from scipy.stats import pearsonr
 import tensorflow as tf
 from tensorflow.keras.layers.experimental import preprocessing
-from tensorflow.python.keras.applications.densenet import layers
+from tensorflow.keras import layers
 import matplotlib.pyplot as plt
-from data_helper import get_intersecting_gene_ids_and_data, clean_gene_names, get_intersecting_gene_ids_with_data_input
+from AchillesPrediction.data_helper import get_intersecting_gene_ids_and_data, clean_gene_names, get_intersecting_gene_ids_with_data_input
 from abc import ABC, abstractmethod
 import argparse
 import datetime
 import sys
 import warnings
 import pandas as pd
+import traceback
 
-from viz import make_plot
+# from viz import make_plot
 
 YELLOW = '#ff003c'
 GREEN = '#cfe2d4'
@@ -133,7 +134,7 @@ class KNNFeatureModel(ABC):
         return X
 
     def add_knn_model(self, x_train, train_y):
-        knn_model = train_model(x_train, train_y, 'knn', False)
+        knn_model = train_model(x_train, train_y, 'knn')
         self.knn_model = knn_model
         x_train = self.enrich_with_knn(x_train)
         return x_train
@@ -245,15 +246,16 @@ class GaussianProcessRegressionModel(KNNFeatureModel):
         model = GaussianProcessRegressor(kernel=kernel, random_state=0)
         self.model = model.fit(X, y)
 
-    # def train(self, X, y, use_knn=False):
-    #     if use_knn:
-    #         X = self.add_knn_model(X, y)
-    #     self.sclr = StandardScaler()
-    #     kernel = RBF()# + WhiteKernel()
-    #     self.sclr = self.sclr.fit(X)
-    #     X = self.sclr.transform(X)
-    #     model = GaussianProcessRegressor(kernel=kernel, random_state=0)
-    #     self.model = model.fit(X, y)
+    def train(self, X, y, use_knn=False):
+        self.use_knn = use_knn
+        if self.use_knn:
+            X = self.add_knn_model(X, y)
+        self.sclr = StandardScaler()
+        kernel = RBF()# + WhiteKernel()
+        self.sclr = self.sclr.fit(X)
+        X = self.sclr.transform(X)
+        model = GaussianProcessRegressor(kernel=kernel, random_state=0)
+        self.model = model.fit(X, y)
 
     def predict_inner(self, X, use_std=False):
         X = self.sclr.transform(X)
@@ -379,6 +381,7 @@ class ChooseBest:
             m = model_method(x_train, y_train)
             vals_pred = m.predict(x_validation)
             val_rmse = get_rmse(vals_pred, y_validation)
+            print(model_name + ':', val_rmse)
             if val_rmse < min_rmse:
                 min_rmse = val_rmse
                 min_model = model_name
@@ -457,7 +460,7 @@ model_train_method = {
 model_train_method_for_choose_best = {
     'linear': train_linear,
     'xg_boost': train_xgboost,
-    'deep': train_deep_learning,
+    # 'deep': train_deep_learning,
     'GP': train_gp,
 }
 
@@ -481,7 +484,7 @@ def train_model(X, y, model_name, use_knn=False):
 
 
 def cross_validation_eval(achilles_effect, expression_dat, target_gene_name, cross_validation_df, model_name,
-                          achilles_id_name='DepMap_ID', expression_id_name='Unnamed: 0', num_features=20):
+                          achilles_id_name='ModelID', expression_id_name='Unnamed: 0', num_features=20):
     """Trains a ML model to predict y based on X input using cross validation
         and prints the final cross validated pearson correlations and RMSE.
 
@@ -526,8 +529,8 @@ def cross_validation_eval(achilles_effect, expression_dat, target_gene_name, cro
         test_ids = set(cur_ids[test_start_idx:])
         train_achilles = achilles_effect.loc[achilles_effect[achilles_id_name].isin(train_ids)]
         test_achilles = achilles_effect.loc[achilles_effect[achilles_id_name].isin(test_ids)]
-        train_achilles = train_achilles.sort_values(by=['DepMap_ID'])
-        test_achilles = test_achilles.sort_values(by=['DepMap_ID'])
+        train_achilles = train_achilles.sort_values(by=['ModelID'])
+        test_achilles = test_achilles.sort_values(by=['ModelID'])
         train_y = train_achilles[target_gene_name]
         test_y = test_achilles[target_gene_name]
         train_expression = expression_dat.loc[expression_dat[expression_id_name].isin(train_ids)]
@@ -546,10 +549,11 @@ def cross_validation_eval(achilles_effect, expression_dat, target_gene_name, cro
             model = train_model(x_train, train_y, model_name)
             test_pred = model.predict(x_test)
             rmse = get_rmse(test_pred, test_y)
-            pred_corr, _ = pearsonr(test_pred, test_y)
+            pred_corr, pred_p_val = pearsonr(test_pred, test_y)
             rmse_sum += rmse
             pearson_corr_pred_sum += pred_corr
             print("{}: {} with pearson corr {}".format(str(datetime.datetime.now()), fold_col, pred_corr))
+            print("{}: {} with pearson p-value {}".format(str(datetime.datetime.now()), fold_col, pred_p_val))
         except Exception as inst:
             print("Exception on {} with fold {}".format(target_gene_name, fold_col))
             print(str(inst))
@@ -594,7 +598,7 @@ def train_no_eval(achilles_effect, expression_dat, target_gene_name, model_name,
            expression_id_name : string
                The column name of cell line id column in the expression data set
            """
-    achilles_effect = achilles_effect.sort_values(by=['DepMap_ID'])
+    achilles_effect = achilles_effect.sort_values(by=['ModelID'])
     y = achilles_effect[target_gene_name]
     expression_dat = expression_dat.sort_values(by=['Unnamed: 0'])
 
@@ -628,8 +632,8 @@ def train_no_eval(achilles_effect, expression_dat, target_gene_name, model_name,
 
 def tissue_plot(expression_dat, achilles_effect, model, in_use_gene_names, target_gene_name, tissues_list, header):
     expression_dat = expression_dat.sort_values(by=['Unnamed: 0'])
-    achilles_effect = achilles_effect.sort_values(by=['DepMap_ID'])
-    assert (list(expression_dat['Unnamed: 0']) == list(achilles_effect['DepMap_ID']))
+    achilles_effect = achilles_effect.sort_values(by=['ModelID'])
+    assert (list(expression_dat['Unnamed: 0']) == list(achilles_effect['ModelID']))
     if "tree" in type(model).__name__.lower():
         plt.figure()
         tree.plot_tree(model.model, feature_names=in_use_gene_names, fontsize=6, rounded=True)
@@ -652,8 +656,8 @@ def tissue_plot(expression_dat, achilles_effect, model, in_use_gene_names, targe
         sample_info = pd.read_csv("sample_info.csv")
         tissue_types = []
         for cell_id in expression_dat['Unnamed: 0']:
-            cur_tissue = list(sample_info[['DepMap_ID', 'sample_collection_site']][
-                                  sample_info.DepMap_ID == cell_id].sample_collection_site)[0]
+            cur_tissue = list(sample_info[['ModelID', 'sample_collection_site']][
+                                  sample_info.ModelID == cell_id].sample_collection_site)[0]
             tissue_types.append(cur_tissue)
         expression_dat["tissue_types"] = tissue_types
         achilles_effect["tissue_types"] = tissue_types
@@ -689,7 +693,7 @@ def tissue_plot(expression_dat, achilles_effect, model, in_use_gene_names, targe
 
     if 'xg' in type(model).__name__.lower():
         top_gene = [b for a, b in sorted(list(zip(list(model.model.feature_importances_), in_use_gene_names)))][-1]
-        target_essentiality = achilles_effect.sort_values(by=['DepMap_ID'])[target_gene_name]
+        target_essentiality = achilles_effect.sort_values(by=['ModelID'])[target_gene_name]
         top_feat_expression = expression_dat.sort_values(by=['Unnamed: 0'])[top_gene]
         fig = plt.figure()
         ax1 = fig.add_subplot(111)
@@ -700,7 +704,7 @@ def tissue_plot(expression_dat, achilles_effect, model, in_use_gene_names, targe
 
 
 def train_test_eval(achilles_effect, expression_dat, target_gene_name, train_test_df, model_name,
-                     achilles_id_name='DepMap_ID', expression_id_name='Unnamed: 0', use_knn=False, should_plot=False,
+                     achilles_id_name='ModelID', expression_id_name='Unnamed: 0', use_knn=False, should_plot=False,
                     num_features=20):
     """Trains a ML model to predict y based on X input using a train/test split
         and prints the final cross validated pearson correlations and RMSE.
@@ -746,8 +750,8 @@ def train_test_eval(achilles_effect, expression_dat, target_gene_name, train_tes
     test_ids = set(cur_ids[test_start_idx:])
     train_achilles = achilles_effect.loc[achilles_effect[achilles_id_name].isin(train_ids)]
     test_achilles = achilles_effect.loc[achilles_effect[achilles_id_name].isin(test_ids)]
-    train_achilles = train_achilles.sort_values(by=['DepMap_ID'])
-    test_achilles = test_achilles.sort_values(by=['DepMap_ID'])
+    train_achilles = train_achilles.sort_values(by=['ModelID'])
+    test_achilles = test_achilles.sort_values(by=['ModelID'])
     train_y = train_achilles[target_gene_name]
     test_y = test_achilles[target_gene_name]
     train_expression = expression_dat.loc[expression_dat[expression_id_name].isin(train_ids)]
@@ -764,6 +768,8 @@ def train_test_eval(achilles_effect, expression_dat, target_gene_name, train_tes
     test_y = np.array(test_y)
     x_train, train_y = handle_nans(x_train, train_y)
     x_test, test_y = handle_nans(x_test, test_y)
+    # print('num_training_samples:', len(x_train))
+    # print('num_test_samples:', len(x_test))
     try:
         model = train_model(x_train, train_y, model_name, use_knn=use_knn)
         test_pred = model.predict(x_test)
@@ -775,14 +781,16 @@ def train_test_eval(achilles_effect, expression_dat, target_gene_name, train_tes
         rmse_sum += rmse
         pearson_corr_pred_sum += pred_corr
         print("{}: {} with test pearson corr {}".format(str(datetime.datetime.now()), "train/test split", pred_corr))
+        print("{}: {} with test pearson p-value {}".format(str(datetime.datetime.now()), "train/test split", pred_p_val))
     except Exception as inst:
         print("Exception on {} with {}".format(target_gene_name, "train/test split"))
         print(str(inst))
+        print(traceback.format_exc())
         model_failed = True
     if not model_failed:
         return rmse_sum / fold_count, pearson_corr_pred_sum / fold_count, pred_p_val, model, in_use_gene_names
     else:
-        return -1, -1, -1, None
+        return -1, -1, -1, None, None
 
 
 def naive_correction(copy_numbers, essentiality_scores_list):
@@ -800,7 +808,7 @@ def naive_correction(copy_numbers, essentiality_scores_list):
 def copy_number_correction(achilles_data, target_col, old_col_names):
     old_col_names = set(old_col_names)
     cn_id_name = "Unnamed: 0"
-    achilles_id_col_name = 'DepMap_ID'
+    achilles_id_col_name = 'ModelID'
     old_col_name = [n for n in old_col_names if target_col in n][0]
     #'VRK1 (7443)'
     copy_number_data = pd.read_csv("CCLE_gene_cn.csv", usecols=[cn_id_name, old_col_name])
@@ -882,9 +890,9 @@ def run_on_target(gene_effect_file_name, gene_expression_file_name, target_gene_
 
     # sample_info = pd.read_csv("sample_info.csv")
     # tissue_types = []
-    # for cell_id in achilles_scores.DepMap_ID:
-    #     cur_tissue = list(sample_info[['DepMap_ID', 'sample_collection_site']][
-    #                           sample_info.DepMap_ID == cell_id].sample_collection_site)[0]
+    # for cell_id in achilles_scores.ModelID:
+    #     cur_tissue = list(sample_info[['ModelID', 'sample_collection_site']][
+    #                           sample_info.ModelID == cell_id].sample_collection_site)[0]
     #     tissue_types.append(cur_tissue)
 
     return process_for_training(achilles_scores, gene_expression, target_gene_name, model_name, train_test_df, cv_df,
@@ -920,10 +928,10 @@ def choose_features(gene_effect_file_name, gene_expression_file_name, target_gen
     cur_ids = list(train_test_df.id)
     train_ids = set(cur_ids[0:test_start_idx])
     test_ids = set(cur_ids[test_start_idx:])
-    achilles_id_name = 'DepMap_ID'
+    achilles_id_name = 'ModelID'
     expression_id_name = 'Unnamed: 0'
     train_achilles = achilles_effect.loc[achilles_effect[achilles_id_name].isin(train_ids)]
-    train_achilles = train_achilles.sort_values(by=['DepMap_ID'])
+    train_achilles = train_achilles.sort_values(by=['ModelID'])
     if not target_gene_name in train_achilles.columns:
         return target_gene_name, []
     train_y = train_achilles[target_gene_name]
@@ -956,7 +964,7 @@ def process_for_training(achilles_scores, gene_expression, target_gene_name, mod
                   return_model=False, genes_for_features=None,
                   use_knn=False, should_plot=False, num_features=20):
     try:
-        achilles_id_col_name = 'DepMap_ID'
+        achilles_id_col_name = 'ModelID'
         expression_id_col_name = 'Unnamed: 0'
         achilles_scores = achilles_scores[[achilles_id_col_name, target_gene_name]]
         # blacklisted_genes = set(['ARMC9', 'OR4F15', 'TRAK2', 'CREB1', 'RIMKLB', 'ACY3', 'ZNF697', 'MEX3A', 'DLC1', 'OR5J2', 'DOCK7', 'TJP3', 'CCDC88C', 'MSI1', 'MTA3', 'TP53INP1', 'SH2B3', 'C10orf90', 'DGCR8', 'FRS2', 'SGCD', 'GRIK5', 'QPCT', 'THBS3', 'SAFB2', 'CSRNP2', 'ZNF529', 'MRAS', 'PRKCZ', 'C16orf54', 'RABL6', 'PROB1', 'STXBP4', 'MDGA2', 'FMNL3', 'CNRIP1', 'ABCB5', 'CDKN1A', 'IL24', 'FAXC', 'DNAJA4', 'ZFHX2', 'ZBP1', 'MMP8', 'IL13RA2', 'LIPH', 'PRY', 'ABI2', 'DACT1', 'BBS5', 'SOGA3', 'OPN1SW', 'CCER2', 'ZNF84', 'RIBC2', 'CKMT1B', 'TSPAN10', 'KIAA1755', 'OSTM1', 'ATP1B2', 'FRMD4A', 'KCNH7', 'SEMA4D', 'SRPX', 'NKTR', 'EIF4E1B', 'ABL2', 'KLHL38', 'PMP2', 'SULT1A1', 'FBXL15', 'SYTL1', 'TSSK4', 'CCDC39', 'ZMAT3', 'CALD1', 'VIM', 'ECM1', 'CALU', 'DRAXIN', 'TMEM30B', 'SLC24A5', 'EBLN2', 'ENTHD1', 'PMEL', 'RFTN1', 'DCT', 'GAPDHS', 'CTSS', 'PIGY', 'IGSF9', 'RLBP1', 'HTRA1', 'BTBD17', 'MAP4', 'SCN8A', 'KRTAP19-1', 'SFTPC', 'RXRG', 'ZNF628', 'DNAJC15', 'HTN1', 'MLANA', 'S100B', 'PLA1A', 'PCDHGB7', 'GALNT6', 'AGR2', 'GSTO2', 'RTP5', 'GLIPR2', 'LGI3', 'SIDT1', 'CAPN8', 'CYP20A1', 'TIMP2', 'DGKE', 'SNCA', 'MICAL3', 'TMEM262', 'IKBIP', 'EPSTI1', 'RPL24', 'CD164L2', 'CRIP1', 'GPR22', 'MPP4', 'WASF1', 'TRIM63', 'GPATCH2', 'PFKFB2', 'PRDM7', 'TRIM51', 'MBTD1', 'IGSF11', 'SPATA18', 'ALX1', 'FABP7', 'CD63', 'MDM2', 'DCLK3', 'ADAP1', 'KLF17', 'CAPN3', 'IFFO1', 'CPN1', 'NOVA1', 'ZMYM4', 'MITF', 'CEACAM6', 'SLC6A15', 'GRIN2D', 'RAB38', 'CLIP3', 'RBM14-RBM4', 'PHACTR1', 'EXTL1', 'SLC15A2', 'RNF183', 'FAAH', 'KCNH1', 'ACTA2', 'ITGB3', 'GJB1', 'ZNF713', 'DHX40', 'CCDC187', 'DGKI', 'SOX10', 'MRGPRX4', 'GRIN1', 'ERC2', 'CNKSR1', 'BCAN', 'SALL2', 'RPS27', 'CPB2', 'TYR', 'DRAM1', 'SLC39A14', 'SPARC', 'GPR26', 'LLGL2', 'SYDE1', 'CCDC142', 'ZNF627', 'ALDH3A1', 'RIPK3', 'PTK2B', 'ACP5', 'OR9G1', 'TRPM1', 'LRRK2', 'PTCHD4', 'FN1', 'SIAH3', 'PLP1', 'PREPL', 'PPP1R17', 'DEF6', 'MARVELD2', 'PMP22', 'NRG4', 'KLHL35', 'HUNK', 'MYH10', 'SPATS1', 'PDE1A', 'GPR162', 'SASS6', 'CCRL2', 'SMYD1', 'CABP7', 'FAM180B', 'SESN1', 'CHL1', 'SRCAP', 'ROPN1B', 'RIMS1', 'TMC5', 'ROPN1', 'CDH19', 'RHOQ', 'GDNF', 'FAM180A', 'RGR', 'WNK3', 'FAM184A', 'PTCRA', 'SUGCT', 'KIAA1549L'])
